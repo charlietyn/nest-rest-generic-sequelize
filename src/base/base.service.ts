@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG, RestGenericConfig } from '../config/rest-generic.config
 import {
   CursorPaginatedResult,
   PaginatedResult,
+  ValidationErrors,
   WriteResult,
 } from '../interfaces/service-result.interface';
 import { FilterParams, PaginationParams } from '../interfaces/filter-params.interface';
@@ -20,6 +21,8 @@ import {
   RoleAwareUser,
   stripDeniedFields,
 } from '../security/field-access';
+import { RelationManager } from '../relations/relation-manager';
+import { ResolvedRelationConfig } from '../relations/relation-config';
 
 /**
  * Generic base service. Concrete services inject their model and pass it to
@@ -174,7 +177,9 @@ export abstract class BaseService<M extends Model = Model> {
       }
       return out;
     });
-    if (result.success) await this.bumpCache();
+    // A partial failure still commits the rows that were found, so the cache
+    // must be bumped whenever at least one record actually changed.
+    if ((result.models ?? []).some((m) => m.success)) await this.bumpCache();
     return result;
   }
 
@@ -196,7 +201,11 @@ export abstract class BaseService<M extends Model = Model> {
   async destroybyid(ids: unknown): Promise<WriteResult> {
     const list = Array.isArray(ids) ? ids : maybeJson<unknown[]>(ids);
     const idArray = Array.isArray(list) ? list : [list];
-    const affected = await this.model.destroy({ where: { [this.primaryKey]: { [Op.in]: idArray } } as WhereOptions });
+    // Transactional like every other write method (see README "Transactions on
+    // every write"): a multi-row delete must be all-or-nothing.
+    const affected = await this.transaction((t) =>
+      this.model.destroy({ where: { [this.primaryKey]: { [Op.in]: idArray } } as WhereOptions, transaction: t }),
+    );
     const success = affected > 0;
     if (success) await this.bumpCache();
     return { success };
@@ -281,7 +290,7 @@ export abstract class BaseService<M extends Model = Model> {
     }
     const config = HierarchyEngine.normalizeParams(params.hierarchy);
     if (!config) {
-      const { hierarchy, ...rest } = params;
+      const { hierarchy: _hierarchy, ...rest } = params;
       return this.list_all(rest, toJson);
     }
     const options = this.translator.buildFindOptions({ ...params, pagination: null });
@@ -309,6 +318,81 @@ export abstract class BaseService<M extends Model = Model> {
     if (!root) throw new NotFoundException(`${this.modelName} with id ${String(id)} not found.`);
     const engine = new HierarchyEngine(this.model as unknown as ModelStatic<Model>, fieldId, this.primaryKey);
     return engine.build([root.toJSON() as Record<string, unknown>], config);
+  }
+
+  // ==========================================================================
+  // RELATIONS (ManagesRelations port) — driven by the resolved relation config
+  // ==========================================================================
+
+  private _relationManager?: RelationManager;
+
+  /** Lazily-built relation manager bound to this service's model. */
+  protected get relations(): RelationManager {
+    if (!this._relationManager) {
+      this._relationManager = new RelationManager(this.model as unknown as ModelStatic<Model>, this.config);
+    }
+    return this._relationManager;
+  }
+
+  listRelation(config: ResolvedRelationConfig, parentId: unknown, params: FilterParams): Promise<unknown> {
+    return this.relations.list(config, parentId, params);
+  }
+
+  showRelation(config: ResolvedRelationConfig, parentId: unknown, relatedId: unknown, params: FilterParams): Promise<unknown> {
+    return this.relations.show(config, parentId, relatedId, params);
+  }
+
+  async createRelation(config: ResolvedRelationConfig, parentId: unknown, data: Record<string, unknown> | Record<string, unknown>[], bulk: boolean): Promise<WriteResult> {
+    const result = await this.relations.create(config, parentId, data, bulk);
+    await this.bumpRelationCache(config);
+    return result;
+  }
+
+  async updateRelation(config: ResolvedRelationConfig, parentId: unknown, relatedId: unknown, data: Record<string, unknown> | Record<string, unknown>[], bulk: boolean): Promise<WriteResult> {
+    const result = await this.relations.update(config, parentId, relatedId, data, bulk);
+    await this.bumpRelationCache(config);
+    return result;
+  }
+
+  async deleteRelation(config: ResolvedRelationConfig, parentId: unknown, relatedId: unknown, data: Record<string, unknown> | unknown[], bulk: boolean): Promise<WriteResult> {
+    const result = await this.relations.delete(config, parentId, relatedId, data, bulk);
+    await this.bumpRelationCache(config);
+    return result;
+  }
+
+  async attachRelation(config: ResolvedRelationConfig, parentId: unknown, data: Record<string, unknown> | unknown[], scenario: string): Promise<unknown> {
+    const result = await this.relations.attach(config, parentId, data, scenario);
+    await this.bumpRelationCache(config);
+    return result;
+  }
+
+  async detachRelation(config: ResolvedRelationConfig, parentId: unknown, relatedId: unknown, data: Record<string, unknown> | unknown[], bulk: boolean): Promise<unknown> {
+    const result = await this.relations.detach(config, parentId, relatedId, data, bulk);
+    await this.bumpRelationCache(config);
+    return result;
+  }
+
+  async updatePivotRelation(config: ResolvedRelationConfig, parentId: unknown, relatedId: unknown, data: Record<string, unknown> | Record<string, unknown>[], bulk: boolean): Promise<unknown> {
+    const result = await this.relations.updatePivot(config, parentId, relatedId, data, bulk);
+    await this.bumpRelationCache(config);
+    return result;
+  }
+
+  // ==========================================================================
+  // VALIDATION HOOK (actionValidate) — validate without persisting
+  // ==========================================================================
+
+  /**
+   * Validate-only entry point. By the time a request reaches the controller the
+   * scenario-aware validation pipe has already run, so the default just echoes
+   * success. Override to add business-rule checks and return
+   * `{ success: false, errors }` to signal failure.
+   */
+  async actionValidate(
+    _scenario: string,
+    _data: Record<string, unknown>,
+  ): Promise<{ success: boolean; errors?: ValidationErrors }> {
+    return { success: true };
   }
 
   // ==========================================================================
@@ -384,6 +468,22 @@ export abstract class BaseService<M extends Model = Model> {
       (c) => getStatic<string>(c, 'MODEL', '') || c.name,
     );
     await this.cache.bumpVersion(this.modelName, invalidates);
+  }
+
+  /**
+   * Bump the cache after a relation write. Both sides are invalidated: the
+   * parent model (whose eager-loaded payloads just changed) and the related
+   * model, whose version is folded into the parent's key via
+   * `relationVersions()`.
+   */
+  protected async bumpRelationCache(config: ResolvedRelationConfig): Promise<void> {
+    if (!this.cache) return;
+    const related = config.relatedModel;
+    const relatedName = getStatic<string>(related, 'MODEL', '') || related.name;
+    const invalidates = getStatic<readonly Function[]>(this.model, 'CACHE_INVALIDATES', []).map(
+      (c) => getStatic<string>(c, 'MODEL', '') || c.name,
+    );
+    await this.cache.bumpVersion(this.modelName, [relatedName, ...invalidates]);
   }
 
   protected async relationVersions(params: FilterParams): Promise<Record<string, number>> {

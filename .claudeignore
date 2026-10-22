@@ -1,0 +1,50 @@
+# Ficheros que los agentes de IA no deben leer ni editar en este repositorio.
+#
+# Regla de oro: la fuente de verdad es `src/` y `test/`. Todo lo demás es
+# generado, instalado o efímero — leerlo sólo gasta contexto y puede llevar al
+# agente a "arreglar" un artefacto de build en vez del código real.
+
+# --- Dependencias e instalación ---------------------------------------------
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# --- Salida de build (artefacto publicado: NUNCA editar a mano) -------------
+dist/
+*.tsbuildinfo
+*.tgz
+
+# --- Tests y cobertura generados --------------------------------------------
+coverage/
+.nyc_output/
+junit.xml
+
+# --- Grafo de conocimiento (generado por /graphify) -------------------------
+graphify-out/
+
+# --- Bases de datos locales / temporales ------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+tmp/
+.tmp/
+
+# --- Secretos: nunca deben entrar en el contexto de un agente ---------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+.npmrc
+
+# --- Ruido de editor y SO ---------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+
+# --- Control de versiones ---------------------------------------------------
+.git/

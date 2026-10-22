@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./node_modules/**)",
+      "Read(./dist/**)",
+      "Read(./coverage/**)",
+      "Read(./graphify-out/**)",
+      "Read(./package-lock.json)",
+      "Read(./*.tgz)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./.npmrc)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/*.p12)",
+      "Read(./**/*.sqlite)",
+      "Read(./**/*.sqlite3)",
+      "Read(./**/*.db)",
+      "Read(./**/*.log)"
+    ]
+  }
+}

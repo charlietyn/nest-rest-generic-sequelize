@@ -1,10 +1,28 @@
-import { Body, Delete, Get, Param, Post, Put, Req, StreamableFile } from '@nestjs/common';
+import {
+  Body,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Put,
+  Req,
+  StreamableFile,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import type { Model } from 'sequelize';
 import { BaseService } from './base.service';
 import { FilterParams } from '../interfaces/filter-params.interface';
 import { CacheContext } from '../cache/cache.service';
 import { DatabaseErrorParser } from '../errors/database-error-parser';
 import { RoleAwareUser } from '../security/field-access';
+import { ManyToManyConfigMap, OneToManyConfigMap } from '../relations/relation-config';
+import {
+  extractMutationData,
+  isBulkScenario,
+  resolveRelationConfig,
+  SCENARIO_PARAM,
+} from '../relations/scenario';
 
 /**
  * Generic REST controller. Subclasses only need:
@@ -20,6 +38,12 @@ import { RoleAwareUser } from '../security/field-access';
  */
 export abstract class RestController<M extends Model = Model> {
   protected constructor(protected readonly service: BaseService<M>) {}
+
+  /** One-to-many relations this controller manages, keyed by the `:relation` route segment. */
+  protected oneToManyConfig?: OneToManyConfigMap;
+
+  /** Many-to-many relations this controller manages, keyed by the `:relation` route segment. */
+  protected manyToManyConfig?: ManyToManyConfigMap;
 
   protected process_request(req: { query?: Record<string, unknown>; body?: Record<string, unknown> }): FilterParams {
     const payload: Record<string, unknown> = { ...(req.query ?? {}), ...(req.body ?? {}) };
@@ -145,25 +169,174 @@ export abstract class RestController<M extends Model = Model> {
 
   @Get('export/data')
   async exportData(@Req() req: any): Promise<unknown> {
-    return this.service.exportData(this.process_request(req));
+    try {
+      return await this.service.exportData(this.process_request(req));
+    } catch (e) {
+      throw DatabaseErrorParser.handle(e);
+    }
   }
 
   @Get('export/excel')
   async exportExcel(@Req() req: any): Promise<StreamableFile> {
-    const file = await this.service.exportExcel(this.process_request(req));
-    return new StreamableFile(file.buffer, {
-      type: file.mimeType,
-      disposition: `attachment; filename="${file.filename}"`,
-    });
+    try {
+      const file = await this.service.exportExcel(this.process_request(req));
+      return new StreamableFile(file.buffer, {
+        type: file.mimeType,
+        disposition: `attachment; filename="${file.filename}"`,
+      });
+    } catch (e) {
+      throw DatabaseErrorParser.handle(e);
+    }
   }
 
   @Get('export/pdf')
   async exportPdf(@Req() req: any): Promise<StreamableFile> {
-    const file = await this.service.exportPdf(this.process_request(req));
-    return new StreamableFile(file.buffer, {
-      type: file.mimeType,
-      disposition: `attachment; filename="${file.filename}"`,
-    });
+    try {
+      const file = await this.service.exportPdf(this.process_request(req));
+      return new StreamableFile(file.buffer, {
+        type: file.mimeType,
+        disposition: `attachment; filename="${file.filename}"`,
+      });
+    } catch (e) {
+      throw DatabaseErrorParser.handle(e);
+    }
+  }
+
+  // ----- Validate-only ------------------------------------------------------
+
+  @Post('validate')
+  @HttpCode(200)
+  async actionValidate(@Body() body: Record<string, unknown>, @Req() req: any): Promise<unknown> {
+    const scenario = String(req.query?.[SCENARIO_PARAM] ?? body?.[SCENARIO_PARAM] ?? 'none');
+    let result: { success: boolean; errors?: unknown };
+    try {
+      result = await this.service.actionValidate(scenario, body);
+    } catch (e) {
+      throw DatabaseErrorParser.handle(e);
+    }
+    if (!result.success) throw new UnprocessableEntityException(result.errors ?? { message: 'Validation failed.' });
+    return result;
+  }
+
+  // ----- Relations (ManagesRelations port) ---------------------------------
+  // Route ordering matters: literal segments (validate/attach/detach/pivot/bulk)
+  // are declared before their `:related_id` param siblings.
+
+  @Put(':parent_id/:relation/pivot/bulk')
+  async updatePivotBulk(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Body() body: Record<string, unknown>): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.updatePivotRelation(config, parentId, null, this.relationData(config, body), true),
+    );
+  }
+
+  @Put(':parent_id/:relation/pivot/:related_id')
+  async updatePivot(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Param('related_id') relatedId: string, @Body() body: Record<string, unknown>): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.updatePivotRelation(config, parentId, relatedId, this.relationData(config, body), false),
+    );
+  }
+
+  @Post(':parent_id/:relation/attach')
+  @HttpCode(200)
+  async attachRelation(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Body() body: Record<string, unknown>, @Req() req: any): Promise<unknown> {
+    const scenario = String(req.query?.[SCENARIO_PARAM] ?? body?.[SCENARIO_PARAM] ?? 'attach');
+    return this.runRelation(relation, (config) =>
+      this.service.attachRelation(config, parentId, this.relationData(config, body) as unknown[], scenario),
+    );
+  }
+
+  @Delete(':parent_id/:relation/detach/bulk')
+  async detachBulk(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Body() body: Record<string, unknown>): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.detachRelation(config, parentId, null, this.relationData(config, body) as unknown[], true),
+    );
+  }
+
+  @Delete(':parent_id/:relation/detach/:related_id')
+  async detach(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Param('related_id') relatedId: string): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.detachRelation(config, parentId, relatedId, [], false),
+    );
+  }
+
+  @Post(':parent_id/:relation/bulk')
+  @HttpCode(201)
+  async createRelationBulk(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Body() body: Record<string, unknown>): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.createRelation(config, parentId, this.relationData(config, body) as Record<string, unknown>[], true),
+    );
+  }
+
+  @Put(':parent_id/:relation/bulk')
+  async updateRelationBulk(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Body() body: Record<string, unknown>): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.updateRelation(config, parentId, null, this.relationData(config, body) as Record<string, unknown>[], true),
+    );
+  }
+
+  @Delete(':parent_id/:relation/bulk')
+  async deleteRelationBulk(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Body() body: Record<string, unknown>): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.deleteRelation(config, parentId, null, this.relationData(config, body) as unknown[], true),
+    );
+  }
+
+  @Get(':parent_id/:relation/:related_id')
+  async showRelation(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Param('related_id') relatedId: string, @Req() req: any): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.showRelation(config, parentId, relatedId, this.process_request(req)),
+    );
+  }
+
+  @Put(':parent_id/:relation/:related_id')
+  async updateRelation(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Param('related_id') relatedId: string, @Body() body: Record<string, unknown>): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.updateRelation(config, parentId, relatedId, this.relationData(config, body) as Record<string, unknown>, false),
+    );
+  }
+
+  @Delete(':parent_id/:relation/:related_id')
+  async deleteRelation(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Param('related_id') relatedId: string): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.deleteRelation(config, parentId, relatedId, [], false),
+    );
+  }
+
+  @Get(':parent_id/:relation')
+  async listRelation(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Req() req: any): Promise<unknown> {
+    return this.runRelation(relation, (config) =>
+      this.service.listRelation(config, parentId, this.process_request(req)),
+    );
+  }
+
+  @Post(':parent_id/:relation')
+  @HttpCode(201)
+  async createRelation(@Param('parent_id') parentId: string, @Param('relation') relation: string, @Body() body: Record<string, unknown>, @Req() req: any): Promise<unknown> {
+    const bulk = isBulkScenario(String(req.query?.[SCENARIO_PARAM] ?? body?.[SCENARIO_PARAM] ?? ''));
+    return this.runRelation(relation, (config) =>
+      this.service.createRelation(config, parentId, this.relationData(config, body) as Record<string, unknown>, bulk),
+    );
+  }
+
+  /** Resolve the relation config and run an operation, mapping DB errors. */
+  protected async runRelation<R>(
+    relation: string,
+    op: (config: ReturnType<typeof resolveRelationConfig>) => Promise<R>,
+  ): Promise<R> {
+    try {
+      const config = resolveRelationConfig(relation, this.oneToManyConfig, this.manyToManyConfig, this.constructor.name);
+      return await op(config);
+    } catch (e) {
+      throw DatabaseErrorParser.handle(e);
+    }
+  }
+
+  /** Extract the related payload from the body using the config's dataKey. */
+  protected relationData(
+    config: ReturnType<typeof resolveRelationConfig>,
+    body: Record<string, unknown>,
+  ): Record<string, unknown> | Record<string, unknown>[] {
+    return extractMutationData(body, config.mutation?.dataKey);
   }
 
   /** Strip role-restricted fields from a create payload (single or bulk shape). */

@@ -36,6 +36,12 @@ export interface RestGenericConfig {
   cache: CacheConfig;
 }
 
+/** Public configuration overrides; each section can be supplied partially. */
+export interface RestGenericConfigInput {
+  filtering?: Partial<FilteringConfig>;
+  cache?: Partial<CacheConfig>;
+}
+
 export const REST_GENERIC_CONFIG = 'REST_GENERIC_CONFIG';
 
 export const DEFAULT_ALLOWED_OPERATORS = [
@@ -66,7 +72,7 @@ export const DEFAULT_CONFIG: RestGenericConfig = {
 };
 
 /** Deep-merge a partial user config onto the defaults. */
-export function mergeConfig(partial?: DeepPartial<RestGenericConfig>): RestGenericConfig {
+export function mergeConfig(partial?: RestGenericConfigInput): RestGenericConfig {
   if (!partial) return clone(DEFAULT_CONFIG);
   return {
     filtering: { ...DEFAULT_CONFIG.filtering, ...(partial.filtering ?? {}) } as FilteringConfig,
@@ -74,7 +80,6 @@ export function mergeConfig(partial?: DeepPartial<RestGenericConfig>): RestGener
   };
 }
 
-type DeepPartial<T> = { [P in keyof T]?: T[P] extends object ? Partial<T[P]> : T[P] };
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
 }

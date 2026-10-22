@@ -6,3 +6,19 @@ coverage/
 *.sqlite
 .idea/
 .vscode/
+
+# Artefactos generados
+graphify-out/
+*.tgz
+
+# Local secrets and tool output
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.tsbuildinfo
+.release/

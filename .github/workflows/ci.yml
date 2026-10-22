@@ -46,7 +46,7 @@ jobs:
       - run: npm run test:cov
       - name: Preserve dependency audit reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: audit-node${{ matrix.node }}-nest${{ matrix.nest }}-${{ matrix.os }}
           path: .artifacts/audit/*.json
@@ -75,7 +75,7 @@ jobs:
       - run: npm run test:package
       - name: Preserve consumer audit reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: audit-node22-minimum-nest${{ matrix.nest }}
           path: .artifacts/audit/*.json

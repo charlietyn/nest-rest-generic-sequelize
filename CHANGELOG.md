@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Mitigate UUID and sprintf-js advisories with scoped, compatibility-tested
+  overrides; document the required UUID overrides in consuming applications.
+- Reject reported vulnerabilities in repository and mitigated consumer audits,
+  retain JSON evidence, and monitor upstream/default consumers separately.
+- Test UUID bounds/defaults, transaction rollback, Excel round-trips/conditional
+  formatting, Istanbul YAML and optional peer exports; schedule weekly CI checks.
+- Check remote synchronization before release validation, including dry runs,
+  and recheck afterwards to detect changes during validation.
 - Prepare the scoped package `@charlietyn/nest-rest-sequelize`; keep the existing
   `1.0.0` package version until an explicit release is run.
 - Support NestJS 12 and 11 with a single CommonJS build consumable from native ESM.

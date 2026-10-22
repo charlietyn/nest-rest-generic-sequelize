@@ -54,6 +54,13 @@ export function release(args = process.argv.slice(2), { root = rootDir, runner =
   const branch = git('branch', '--show-current');
   if (branch !== 'main') throw new Error('Releases must run from main.');
   if (git('tag', '--list', tag)) throw new Error(`Local tag ${tag} already exists.`);
+  const assertRemoteSynchronized = () => {
+    const remote = git('ls-remote', '--exit-code', 'origin', 'refs/heads/main').split(/\s+/)[0];
+    if (remote !== head) throw new Error('Local main and origin/main must be synchronized before release. Fetch origin, review ahead/behind commits, then synchronize main and retry. Nothing was published.');
+  };
+  // Fail before expensive validation, including in dry-run mode. Read the actual
+  // remote instead of trusting a potentially stale origin/main tracking ref.
+  assertRemoteSynchronized();
   log(`${dryRun ? 'DRY RUN' : 'RELEASE'}: ${pkg.name} ${pkg.version} -> ${target} (${bump})`);
 
   exec('npm', ['run', 'validate']);
@@ -73,14 +80,14 @@ export function release(args = process.argv.slice(2), { root = rootDir, runner =
   }
   assertClean();
   if (git('rev-parse', 'HEAD') !== head) throw new Error('HEAD changed during validation. Restart release.');
+  assertRemoteSynchronized();
   if (dryRun) {
     log(`Dry run complete. Would publish ${pkg.name}@${target}, commit and tag ${tag}, then push main and that tag. Authentication and Git push permissions are checked only for a real release. No version, commit, tag, publication or push was made.`);
     return { version: target, published: false, dryRun: true };
   }
   if (process.env.CI) throw new Error('Publication is local only. CI validates but never publishes.');
   exec('npm', ['whoami', `--registry=${registry}`]);
-  const remote = git('ls-remote', '--exit-code', 'origin', 'refs/heads/main').split(/\s+/)[0];
-  if (remote !== head) throw new Error('Local main and origin/main must be synchronized before release.');
+  assertRemoteSynchronized();
   if (git('ls-remote', 'origin', `refs/tags/${tag}`)) throw new Error(`Remote tag ${tag} already exists.`);
   exec('git', ['push', '--dry-run', 'origin', 'HEAD:refs/heads/main']);
   assertClean();

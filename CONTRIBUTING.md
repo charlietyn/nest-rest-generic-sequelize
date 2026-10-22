@@ -14,6 +14,8 @@ npm run test:package
 npm run audit:dependencies
 # All of the above:
 npm run validate
+# Also exercise coverage instrumentation:
+npm run test:cov
 ```
 
 Tests use SQLite in memory and an ephemeral localhost HTTP port. No database
@@ -61,8 +63,11 @@ and meet the new peer/runtime requirements.
 Every mode requires a clean working tree and `main`. Dry run executes validation,
 build, tests, package inspection, consumer installation and registry version
 checks. It does **not** change versions, create commits/tags, publish or push.
-Build output and temporary test files can be created. It does not require npm
-login or test Git push permissions.
+Build output and temporary test files can be created. It checks actual remote
+synchronization before validation and rechecks it afterwards; fetch and review
+`git log --left-right --oneline main...origin/main` when it fails. Synchronize
+reviewed commits without force-pushing, then retry. It does not require npm login
+or test Git push permissions.
 
 A real release additionally checks npm identity, remote synchronization, local
 and remote tag absence and a Git push dry run. Only then does it update package

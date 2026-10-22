@@ -43,6 +43,35 @@ npm install @nestjs/common@12 @nestjs/core@12 @nestjs/sequelize@12 sequelize@6 s
 # Also install the Sequelize driver for your database (e.g. pg + pg-hstore).
 ```
 
+### Required dependency security configuration
+
+Until Sequelize and ExcelJS adopt patched UUID releases, merge these overrides
+into the **application's root** `package.json`, then run `npm install` and commit
+its lockfile:
+
+```json
+{
+  "overrides": {
+    "sequelize": { "uuid": "11.1.1" },
+    "exceljs": { "uuid": "11.1.1" }
+  }
+}
+```
+
+The ExcelJS override is needed only when that optional peer is installed.
+These overrides address [GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq).
+UUID 11.1.1 supports CommonJS; the compatibility suite verifies Sequelize UUID
+defaults/transactions and ExcelJS extended conditional formatting. npm does
+**not** inherit overrides from installed libraries. Installing this package alone
+therefore does not eliminate the upstream UUID audit warning. Adding UUID as a
+direct dependency is not a substitute for replacing the nested copies.
+
+Verify your application's complete dependency tree with `npm audit`; its database
+driver and other packages may require separate updates. The repository also
+overrides Istanbul's `js-yaml` to 4.3.2 to remove the vulnerable `sprintf-js` chain
+from development tools; applications do not need that override unless they use
+the affected tooling themselves.
+
 ---
 
 ## Requirements and compatibility
@@ -427,7 +456,16 @@ npm run validate  # lint, types, tests, build, package/consumer checks and audit
 Release tests replace process execution; they never publish or push. The actual
 tarball is installed in an independent temporary project by `npm run test:package`,
 which checks CommonJS/ESM imports, TypeScript declarations, module DI, missing
-optional dependencies and consumer dependency auditing. Registry access is needed.
+optional dependencies, installed Excel/PDF exports and consumer dependency auditing.
+Registry access is needed. `npm run test:dependencies` verifies UUID bounds checks,
+SQLite transactions, Excel conditional formatting and Istanbul YAML loading.
+`npm run test:cov` exercises Jest coverage with the updated YAML dependency.
+
+Repository and mitigated consumer audits reject every reported vulnerability.
+The separate unmitigated consumer probe explicitly reports the known upstream UUID
+advisory; any unrelated advisory fails that probe. JSON reports are saved under
+`.artifacts/audit/` (or `AUDIT_REPORT_DIR`) and retained as CI artifacts. CI runs
+weekly as well as on pushes and pull requests; Dependabot checks updates weekly.
 
 ## Public API
 
@@ -475,7 +513,9 @@ npm run release -- minor
 npm run release -- major
 ```
 
-All release modes require a clean `main`. Dry run validates and previews without
+All release modes require a clean `main` synchronized with the actual remote.
+Synchronization is checked before expensive validation and again afterwards.
+Dry run validates and previews without
 version changes, commits, tags, publication or push. A real invocation also checks
 npm authentication, an unused version/tag and synchronization with `origin/main`,
 then bumps the real package version, commits/tags, publishes the inspected tarball

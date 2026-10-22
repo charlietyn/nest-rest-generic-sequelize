@@ -37,9 +37,26 @@ GitHub CI does not publish. Protect `main` and review dependency lockfile change
 
 ## Dependencies
 
-Run `npm run audit:dependencies` and `npm run test:package` before releasing. The
-latter audits a real consumer, including runtime peer dependencies. High/critical
-advisories fail validation. Moderate transitive advisories are reported and must
-be reviewed; the project does not apply arbitrary major overrides to Sequelize
-or Jest to silence them. See `docs/PACKAGE-AUDIT.md` for the preparation audit and
-compatibility limits.
+Run `npm run audit:dependencies`, `npm run test:dependencies` and
+`npm run test:package` before releasing. Repository and mitigated consumer audits
+reject every reported vulnerability, including moderate and low severity.
+Transport errors and malformed audit responses also fail validation. JSON reports
+are retained under `.artifacts/audit/` and uploaded by CI even when checks fail.
+
+The repository pins `uuid@11.1.1` under Sequelize/ExcelJS and `js-yaml@4.3.2`
+under `@istanbuljs/load-nyc-config`. Compatibility tests cover UUID v1/v4 defaults,
+transaction commit/rollback, v3/v5/v6 buffer bounds, Excel extended conditional
+formatting, and YAML configuration inheritance. Coverage runs exercise Jest.
+
+Consumers must configure the UUID overrides in their own root manifest, as shown
+in README. Published library overrides are not inherited. A separate unmitigated
+consumer probe reports only the known moderate
+[UUID advisory](https://github.com/advisories/GHSA-w5hq-g745-h8pq) and its transitive
+dependents; any other advisory or severity escalation fails. This probe is
+upstream monitoring, not evidence of a clean default installation. Both supported
+consumer configurations (without and with optional exports) must audit clean.
+
+Review upstream adoption weekly through CI/Dependabot. Remove each override only
+after an upstream update passes the same compatibility and consumer audits without
+it. Until then, downstream root configuration remains required. See
+`docs/PACKAGE-AUDIT.md` for the preparation audit and compatibility limits.

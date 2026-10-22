@@ -66,21 +66,33 @@ sqlite3 5→6.0.1, quedaron **25 moderados, 0 altos y 0 críticos**. El driver m
 la API usada por Sequelize; las pruebas reales de SQLite verifican su integración.
 Su upstream está archivado: debe revisarse antes de futuras actualizaciones.
 
-Los avisos restantes tienen dos raíces:
+La mitigación posterior elimina esas dos raíces del repositorio:
 
 - `uuid` transitivo de Sequelize/ExcelJS: límites de buffer en las funciones
   v3/v5/v6. npm no ofrece una corrección dentro de las versiones admitidas por
-  esos paquetes. No se fuerza una major transitiva sin revisar los consumidores.
+  esos paquetes. Se fija UUID 11.1.1 mediante overrides específicos para Sequelize
+  y ExcelJS, con pruebas de buffers, UUID v1/v4, transacciones y formato condicional.
   [Aviso upstream](https://github.com/advisories/GHSA-w5hq-g745-h8pq).
 - `sprintf-js` en la cadena de herramientas Jest/Istanbul: precisión no limitada
-  en cadenas de formato. El aviso no ofrece versión corregida. No se aceptan
-  cadenas de formato externas en el proceso de tests.
+  en cadenas de formato. El aviso no ofrece versión corregida. Se elimina esa
+  cadena fijando js-yaml 4.3.2 bajo @istanbuljs/load-nyc-config, con pruebas de
+  carga YAML y herencia de configuración, además de cobertura Jest.
   [Aviso upstream](https://github.com/advisories/GHSA-hp3w-g68c-fv3c).
 
-El consumidor mínimo con peers registra **5 avisos moderados** derivados de uuid,
-sin altos/críticos. Un audit `--omit=dev` solo en la raíz ocultaría estos peers
-porque también son devDependencies: por eso se audita el consumidor independiente.
-Los conteos son una instantánea; CI consulta de nuevo y bloquea altos/críticos.
+Una instalación limpia del repositorio registra **0 vulnerabilidades**. Los
+overrides de una librería no se heredan: el consumidor debe añadir los overrides
+UUID a su propio package.json, como indica README. El consumidor mínimo sin esa
+configuración mantiene los **5 avisos moderados** de UUID; no se presenta como
+una instalación limpia. Una sonda separada admite únicamente ese aviso upstream
+y falla ante avisos nuevos o una escalada de severidad.
+
+Los consumidores mitigados se auditan sin excepciones, tanto sin dependencias
+opcionales como con ExcelJS/PDFKit. Un audit --omit=dev solo en la raíz ocultaría
+peers que también son devDependencies: por eso se audita el tarball independiente.
+Los informes JSON quedan en .artifacts/audit y en los artefactos CI. La validación
+bloquea cualquier vulnerabilidad reportada en las configuraciones mitigadas;
+CI y Dependabot revisan las dependencias semanalmente. Retirar los overrides
+requiere versiones upstream corregidas y repetir las mismas pruebas sin ellos.
 
 ## Release y seguridad del artefacto
 
@@ -89,7 +101,8 @@ LICENSE y metadata. La inspección exige las rutas públicas, rechaza archivos
 imprevistos y busca firmas habituales de credenciales sin imprimir sus valores.
 No es una garantía de detección de todos los secretos posibles.
 
-Release comprueba Git limpio, main, versiones coherentes, tests/build/paquete,
+Release comprueba Git limpio, main sincronizado antes de validar (también en
+dry-run), versiones coherentes, tests/build/paquete,
 versión npm libre, autenticación y sincronización remota antes de incrementar.
 Los tests simulan patch/minor/major, errores y el caso publicado-con-push-fallido.
 No usan un publicador real. El dry-run también reconoce `npm_config_dry_run`
@@ -115,30 +128,32 @@ esa opción de los procesos de validación para que sí instalen el consumidor.
 ### Verificado localmente (Windows)
 
 - `npm run validate` completo: lint (ESLint 10), tipos, **38 tests funcionales en
-  8 suites**, **25 tests de release**, build limpio, inspección, instalación del
+  8 suites**, **27 tests de release** y **8 de dependencias/auditoría**, build limpio, inspección, instalación del
   tarball y auditorías. Finaliza con código 0 en Node 24.21.0 / Nest 12.2.0.
 - Las 38 pruebas funcionales también pasan con Nest 11 en Node 24.21.0, y con
-  Nest 11 y 12 en Node 26.12.0. Incluyen SQLite real, DI, HTTP y relaciones.
-- Consumidores independientes con Nest 11 y 12 en **Node 22.12.0, 24.21.0 y
-  26.12.0**: instalación desde `.tgz`, CommonJS, ESM nativo, declaraciones
-  TypeScript con `skipLibCheck: false`, configuración e integraciones opcionales
-  ausentes. Node 22.12 emite el aviso experimental de `require(esm)`.
+  cobertura para Nest 11 y 12 en Node 26.12.0. Incluyen SQLite real, DI, HTTP y relaciones.
+- Consumidores independientes con Nest 11 y 12 en **Node 22.12.0**, y con Nest 12
+  en **Node 24.21.0**: instalación desde `.tgz`, CommonJS, ESM nativo, declaraciones
+  TypeScript con `skipLibCheck: false`, configuración, integraciones opcionales
+  ausentes y Excel/PDF instalados. Ambas configuraciones mitigadas auditan limpio.
+  Node 22.12 emite el aviso experimental de `require(esm)`.
 - Paquete de **44 archivos**: JS/declaraciones y documentación autorizada;
   sin ejemplos, tests, scripts, `.env`, claves ni firmas de credenciales detectadas.
 - `patch`, `minor` y `major`, prevención de duplicados, errores de validación,
   autenticación, empaquetado, publicación incierta y push fallido están probados
   con ejecución de procesos simulada. Ninguna prueba publica realmente.
-- Dry-run completo en una copia temporal con Git limpio: propone `1.0.1` y
-  conserva `1.0.0`, sin nuevos commits, tags ni cambios de Git. En el repositorio
-  original se comprueba el rechazo por cambios pendientes, sin modificar versiones.
+- Se comprueba mediante tests que el dry-run rechaza main desincronizado antes
+  de validar y detecta cambios remotos durante la validación. La publicación real
+  permanece fuera de estas pruebas.
 - YAML de CI analizado correctamente y `git diff --check` sin errores.
 
-### Implementado pero no verificado remotamente
+### Comprobaciones remotas y publicación
 
 - Workflow de GitHub Actions con matriz Linux/Windows, Node 24/26 y Nest 11/12,
-  más consumidores en el runtime mínimo 22.12. No se ha ejecutado en GitHub.
-- Publicación real y sincronización remota: solo se prueba su secuencia mediante
-  simulaciones; no se ha publicado ni hecho push.
+  más consumidores en el runtime mínimo 22.12. Consultar el resultado asociado
+  al commit en GitHub Actions; los logs locales no acreditan la ejecución Linux.
+- La publicación real en npm no forma parte de la mitigación; requiere ejecutar
+  explícitamente el release con main limpio y sincronizado.
 
 ### Pendiente antes de publicar
 

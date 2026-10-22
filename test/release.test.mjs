@@ -40,7 +40,10 @@ function fixture(t, behavior = {}) {
     else if (key === 'git rev-parse HEAD') stdout = 'abc123';
     else if (key === 'git branch --show-current') stdout = behavior.branch || 'main';
     else if (key.startsWith('git tag --list')) stdout = behavior.tag ? args.at(-1) : '';
-    else if (key === 'git ls-remote --exit-code origin refs/heads/main') stdout = `${behavior.diverged ? 'other' : 'abc123'}\trefs/heads/main`;
+    else if (key === 'git ls-remote --exit-code origin refs/heads/main') {
+      const moved = behavior.remoteMoves && calls.some(c => c[0] === 'npm' && c[1] === 'run');
+      stdout = `${behavior.diverged || moved ? 'other' : 'abc123'}\trefs/heads/main`;
+    }
     else if (cmd === 'npm' && args[0] === 'pack') stdout = JSON.stringify([pack()]);
     else if (cmd === 'npm' && args[0] === 'view') {
       if (behavior.registryError) return { status: 1, stdout: JSON.stringify({ error: { code: behavior.registryError } }), stderr: 'registry error' };
@@ -103,6 +106,19 @@ for (const [name, behavior, error] of [
 test('unpublished package E404 permits a dry run', t => {
   const f = fixture(t, { registryError: 'E404' });
   assert.equal(f.run(['--dry-run']).published, false);
+});
+
+test('unsynchronized main fails before validation even in a dry run', t => {
+  const f = fixture(t, { diverged: true });
+  assert.throws(() => f.run(['--dry-run']), /synchronized/);
+  assert.ok(!f.calls.some(c => c[0] === 'npm'));
+});
+
+test('remote changes during validation invalidate the dry run', t => {
+  const f = fixture(t, { remoteMoves: true });
+  assert.throws(() => f.run(['--dry-run']), /synchronized/);
+  assert.ok(f.calls.some(c => c[1] === 'run' && c[2] === 'validate'));
+  assert.ok(!f.calls.some(c => ['version', 'publish', 'commit', 'push'].includes(c[1])));
 });
 
 test('unsafe package metadata fails early', t => {

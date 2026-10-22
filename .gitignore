@@ -22,3 +22,4 @@ graphify-out/
 *.pfx
 *.tsbuildinfo
 .release/
+.artifacts/

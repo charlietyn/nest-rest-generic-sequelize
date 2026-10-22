@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '23 7 * * 1'
 
 permissions:
   contents: read
@@ -41,6 +43,14 @@ jobs:
         if: matrix.nest == '11'
         run: npm install --no-save --package-lock=false @nestjs/common@11 @nestjs/core@11 @nestjs/testing@11 @nestjs/platform-express@11 @nestjs/sequelize@11
       - run: npm run validate
+      - run: npm run test:cov
+      - name: Preserve dependency audit reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: audit-node${{ matrix.node }}-nest${{ matrix.nest }}-${{ matrix.os }}
+          path: .artifacts/audit/*.json
+          retention-days: 14
 
   minimum-runtime:
     name: Minimum Node 22 runtime / Nest ${{ matrix.nest }}
@@ -63,3 +73,10 @@ jobs:
       - run: npm run check:package
       # Native Node imports and types, without Jest's newer VM requirements.
       - run: npm run test:package
+      - name: Preserve consumer audit reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: audit-node22-minimum-nest${{ matrix.nest }}
+          path: .artifacts/audit/*.json
+          retention-days: 14

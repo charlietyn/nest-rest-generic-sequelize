@@ -79,7 +79,7 @@
     "exceljs": "^3.4.0",
     "globals": "^16.0.0",
     "jest": "^30.5.2",
-    "pdfkit": "^0.15.0",
+    "pdfkit": "^0.20.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.0",
     "semver": "^7.7.0",

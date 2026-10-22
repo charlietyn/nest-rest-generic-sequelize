@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 - 2026-10-22
 
 - Mitigate UUID and sprintf-js advisories with scoped, compatibility-tested
   overrides; document the required UUID overrides in consuming applications.
@@ -10,8 +10,7 @@
   formatting, Istanbul YAML and optional peer exports; schedule weekly CI checks.
 - Check remote synchronization before release validation, including dry runs,
   and recheck afterwards to detect changes during validation.
-- Prepare the scoped package `@charlietyn/nest-rest-sequelize`; keep the existing
-  `1.0.0` package version until an explicit release is run.
+- Introduce the scoped package `@charlietyn/nest-rest-sequelize`.
 - Support NestJS 12 and 11 with a single CommonJS build consumable from native ESM.
 - Add explicit public exports, strict type checking, clean builds, a package
   allowlist, consumer tarball tests, CI and a guarded local release command.
@@ -24,6 +23,3 @@
   tests with NestJS 12. NestJS 9/10 are outside the supported peer range.
 - Add `LICENSE` containing the MIT terms already declared by package.json and
   README; no license change.
-
-No publication is implied by this entry. Before releasing, review the scope and
-choose patch, minor or major; move these notes to the resulting version.

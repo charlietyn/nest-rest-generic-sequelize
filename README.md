@@ -31,9 +31,8 @@ Build a fully-featured CRUD endpoint (dynamic filtering, eager relations, orderi
 
 ## 📦 Installation
 
-Package name: **`@charlietyn/nest-rest-sequelize`**. This repository preparation
-does not publish a version. Until the first explicit release, use `npm pack` and
-install the resulting `.tgz` in your application.
+Package name: **`@charlietyn/nest-rest-sequelize`**. Install it from npm, or use
+`npm pack` to build a local `.tgz` for testing in your application.
 
 ```bash
 npm install @charlietyn/nest-rest-sequelize

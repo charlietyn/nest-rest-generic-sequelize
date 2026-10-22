@@ -54,7 +54,7 @@ npm run release -- major
 npm run release -- minor --dry-run
 ```
 
-For the current `1.0.0`, those increments produce `1.0.1`, `1.1.0`, or `2.0.0`.
+For example, from `1.0.0`, those increments produce `1.0.1`, `1.1.0`, or `2.0.0`.
 The script reads the actual version; examples are not hardcoded into it. Patch
 means compatible fixes, minor compatible features, major incompatible changes.
 The scoped package is a new identity; older unscoped users must change imports

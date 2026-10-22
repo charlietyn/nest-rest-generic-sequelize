@@ -1,6 +1,6 @@
 {
   "name": "@charlietyn/nest-rest-sequelize",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Reusable NestJS 11/12 Model, Service and Controller classes for Sequelize REST APIs, filtering, relations, pagination, hierarchy, transactions and caching.",
   "author": "Charlietyn",
   "license": "MIT",
